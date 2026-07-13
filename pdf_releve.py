@@ -6,6 +6,7 @@ construire_pdf(...) renvoie les octets du PDF.
 from __future__ import annotations
 import io
 import re
+import xml.sax.saxutils as _sax
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
@@ -33,6 +34,11 @@ _LIGNE = colors.HexColor("#e5e7eb")
 def initiales(nom: str) -> str:
     mots = re.findall(r"[A-Za-zÀ-ÿ]+", nom or "")
     return "".join(m[0] for m in mots).upper()
+
+
+def _echapper(s) -> str:
+    """Échappe le texte libre avant insertion dans un Paragraph reportlab."""
+    return _sax.escape("" if s is None else str(s))
 
 
 def _texte_pause(pause) -> str:
@@ -84,7 +90,7 @@ def construire_pdf(res: dict, entete: dict) -> bytes:
         ("Lieu de mesure", entete.get("lieu", "")),
         ("Initiales", entete.get("initiales", "")),
     ]
-    t_entete = Table([[Paragraph(k, label), Paragraph(str(v), normal)]
+    t_entete = Table([[Paragraph(_echapper(k), label), Paragraph(_echapper(v), normal)]
                       for k, v in lignes_entete],
                      colWidths=[doc.width * 0.32, doc.width * 0.68])
     t_entete.setStyle(TableStyle([
@@ -97,15 +103,18 @@ def construire_pdf(res: dict, entete: dict) -> bytes:
 
     # Bloc TAC + bandeau zone
     couleur = _COULEUR_ZONE.get(res["code_zone"], _GRIS)
-    tac_txt = f"{res['tac']:.1f} °C".replace(".", ",")
-    zone_txt = f"ZONE {res['zone'].upper()}"
-    detail_zone = (f"Hydratation : 1 verre / {res['hydratation_min']} min  ·  "
-                   f"Alternance : {_texte_pause(res['pause_min_par_heure'])}")
+    # Fond clair (V, VP) => texte foncé pour rester lisible ; sinon texte blanc.
+    couleur_texte_zone = "#1f2937" if res["code_zone"] in ("V", "VP") else "white"
+    tac_txt = _echapper(f"{res['tac']:.1f} °C".replace(".", ","))
+    zone_txt = _echapper(f"ZONE {res['zone'].upper()}")
+    detail_zone = _echapper(
+        f"Hydratation : 1 verre / {res['hydratation_min']} min  ·  "
+        f"Alternance : {_texte_pause(res['pause_min_par_heure'])}")
     bloc = Table([[
         Paragraph(f"<font size=8 color='#6b7280'>TAC</font><br/>"
                   f"<font size=20><b>{tac_txt}</b></font>", normal),
-        Paragraph(f"<font size=13 color='white'><b>{zone_txt}</b></font><br/>"
-                  f"<font size=8 color='white'>{detail_zone}</font>", normal),
+        Paragraph(f"<font size=13 color='{couleur_texte_zone}'><b>{zone_txt}</b></font><br/>"
+                  f"<font size=8 color='{couleur_texte_zone}'>{detail_zone}</font>", normal),
     ]], colWidths=[doc.width * 0.30, doc.width * 0.70])
     bloc.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (0, 0), colors.HexColor("#f3f4f6")),
@@ -130,7 +139,7 @@ def construire_pdf(res: dict, entete: dict) -> bytes:
         ("Combinaison coton", "Oui" if i["combinaison_coton"] else "Non"),
         ("Source des données", i["source"]),
     ]
-    t_intr = Table([[Paragraph(k, normal), Paragraph(str(v), normal)]
+    t_intr = Table([[Paragraph(_echapper(k), normal), Paragraph(_echapper(v), normal)]
                     for k, v in donnees_intrants],
                    colWidths=[doc.width * 0.55, doc.width * 0.45])
     t_intr.setStyle(TableStyle([
@@ -145,7 +154,7 @@ def construire_pdf(res: dict, entete: dict) -> bytes:
     # Recommandations
     story.append(Paragraph("RECOMMANDATIONS DU JOUR", label))
     for r in tac_engine.recommandations(res):
-        story.append(Paragraph(f"• {r}", normal))
+        story.append(Paragraph(f"• {_echapper(r)}", normal))
         story.append(Spacer(1, 2))
 
     doc.build(story)

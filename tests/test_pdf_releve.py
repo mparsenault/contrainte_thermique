@@ -42,3 +42,8 @@ def test_construire_pdf_gere_entete_vide():
     entete["initiales"] = ""
     data = pdf_releve.construire_pdf(_res_exemple(), entete)
     assert bytes(data[:5]) == b"%PDF-"
+
+
+def test_echapper_neutralise_les_chevrons():
+    assert pdf_releve._echapper("Poste Atwater <Est>") == "Poste Atwater &lt;Est&gt;"
+    assert pdf_releve._echapper(None) == ""
