@@ -1,0 +1,16 @@
+# Secrets — NE JAMAIS committer
+.streamlit/secrets.toml
+text.txt
+
+# Environnements Python
+.venv/
+venv/
+env/
+
+# Cache Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Maquettes du compagnon de brainstorming (superpowers)
+.superpowers/brainstorm/
