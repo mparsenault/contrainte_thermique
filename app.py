@@ -167,6 +167,7 @@ def lire_projets_config() -> dict:
             if nom:
                 out[nom] = {
                     "id": it["id"],
+                    "no": f.get("NoProjet", "") or "",
                     "entrepreneur": f.get("Entrepreneur", "") or "",
                     "responsable": f.get("ResponsableSST", "") or "",
                     "compagnie": f.get("Compagnie", "") or "",
@@ -266,7 +267,15 @@ with st.sidebar:
 
 # ─────────────────────────────── Données de référence ───────────────────────────────
 projets_cfg = lire_projets_config()
-projets = sorted(projets_cfg.keys())
+projets = sorted(projets_cfg.keys(),
+                 key=lambda n: (projets_cfg[n].get("no", ""), n))
+
+
+def libelle_chantier(nom: str) -> str:
+    """Libellé affiché dans les menus : « NoProjet · description ».
+    Dégrade en simple description si le numéro est absent ou le nom inconnu."""
+    no = projets_cfg.get(nom, {}).get("no", "")
+    return f"{no} · {nom}" if no else nom
 
 # ─────────────────────────────── Interface ───────────────────────────────
 st.title("🌡️ Contrainte thermique — chaleur")
@@ -287,7 +296,8 @@ with onglet_saisie:
 
     csel, cfav = st.columns([4, 1])
     with csel:
-        chantier = st.selectbox("Chantier", options, index=0 if options else None)
+        chantier = st.selectbox("Chantier", options, index=0 if options else None,
+                                format_func=libelle_chantier)
     with cfav:
         st.markdown("<div style='height:1.85rem'></div>", unsafe_allow_html=True)  # aligne le bouton sur le champ
         if chantier and chantier in favoris:
@@ -407,7 +417,9 @@ with onglet_saisie:
                        f"(statut « En attente ») : {e}")
 
 with onglet_releves:
-    f_chantier = st.selectbox("Filtrer par chantier", ["(tous)"] + projets)
+    f_chantier = st.selectbox("Filtrer par chantier", ["(tous)"] + projets,
+                              format_func=lambda n: "(tous)" if n == "(tous)"
+                              else libelle_chantier(n))
     releves = lire_liste(LISTE_RELEVES)
     releves = [r for r in releves if f_chantier == "(tous)" or r.get("Chantier") == f_chantier]
     releves.sort(key=lambda r: r.get("DateHeure", ""), reverse=True)
