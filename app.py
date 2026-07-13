@@ -215,9 +215,10 @@ def _injecter_style() -> None:
 _injecter_style()
 
 if not st.user.is_logged_in:
-    st.title("Contrainte thermique")
-    st.write("Connecte-toi avec ton compte ELEM pour saisir un relevé.")
-    st.button("Se connecter", on_click=st.login, args=("microsoft",))
+    st.title("🌡️ Contrainte thermique")
+    st.caption("Suivi de la contrainte thermique (chaleur) sur les chantiers ELEM.")
+    st.write("Connectez-vous avec votre compte ELEM pour saisir un relevé.")
+    st.button("Se connecter", on_click=st.login, args=("microsoft",), type="primary")
     st.stop()
 
 with st.sidebar:
@@ -230,6 +231,7 @@ zones = {z.get("Title"): z for z in lire_liste(LISTE_ZONES)}   # clé = nom de z
 
 # ─────────────────────────────── Interface ───────────────────────────────
 st.title("🌡️ Contrainte thermique — chaleur")
+st.caption("Calcul de la TAC en direct · saisie envoyée dans SharePoint pour génération du PDF officiel.")
 onglet_saisie, onglet_releves = st.tabs(["Nouveau relevé", "Mes relevés"])
 
 with onglet_saisie:
