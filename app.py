@@ -182,6 +182,38 @@ def enregistrer_config_chantier(item_id: str, entrepreneur: str, responsable: st
                        json={"Entrepreneur": entrepreneur, "ResponsableSST": responsable})
     r.raise_for_status()
 
+# ─────────────────────────────── Fichiers (bibliothèque Documents) ───────────────────────────────
+@st.cache_data(ttl=300)
+def _drive_id() -> str:
+    r = requests.get(f"{GRAPH}/sites/{SITE_ID}/drive?$select=id", headers=_headers())
+    r.raise_for_status()
+    return r.json()["id"]
+
+
+def _slug_chemin(s: str) -> str:
+    """Nettoie un segment de chemin SharePoint (retire les caractères interdits)."""
+    for c in '\\/:*?"<>|#%':
+        s = s.replace(c, "-")
+    return s.strip() or "chantier"
+
+
+def televerser_pdf(chemin_relatif: str, donnees: bytes) -> str:
+    """PUT du PDF dans la bibliothèque Documents. Retourne l'URL web du fichier."""
+    from urllib.parse import quote
+    did = _drive_id()
+    url = f"{GRAPH}/drives/{did}/root:/{quote(chemin_relatif)}:/content"
+    r = requests.put(url, headers={**_headers(), "Content-Type": "application/pdf"},
+                     data=donnees)
+    r.raise_for_status()
+    return r.json()["webUrl"]
+
+
+def maj_releve(item_id: str, fields: dict) -> None:
+    lid = resoudre_liste(LISTE_RELEVES)
+    r = requests.patch(f"{GRAPH}/sites/{SITE_ID}/lists/{lid}/items/{item_id}/fields",
+                       headers={**_headers(), "Content-Type": "application/json"}, json=fields)
+    r.raise_for_status()
+
 # ─────────────────────────────── Authentification (login) ───────────────────────────────
 st.set_page_config(page_title="Contrainte thermique", page_icon="🌡️", layout="centered")
 
@@ -320,13 +352,19 @@ with onglet_saisie:
              f"{res['hydratation_min']} min · {alt}")
     st.caption("Rapport officiel IRSST généré à l'enregistrement.")
 
+    if not cfg.get("entrepreneur") or not cfg.get("responsable"):
+        st.info("Astuce : configurez l'entrepreneur et le responsable SST de ce "
+                "chantier (⚙️ ci-dessus) pour un PDF complet.")
+
     if st.button("Enregistrer le relevé", type="primary", disabled=not (chantier and lieu)):
+        maintenant = dt.datetime.now()
+        # 1. Créer le relevé (En attente)
         try:
-            creer_releve({
-                "Title": f"{chantier} {dt.datetime.now():%Y-%m-%d %H:%M}",
+            item = creer_releve({
+                "Title": f"{chantier} {maintenant:%Y-%m-%d %H:%M}",
                 "Chantier": chantier,
                 "Lieu": lieu,
-                "DateHeure": dt.datetime.now().isoformat(),
+                "DateHeure": maintenant.isoformat(),
                 "Intensite": intensite,
                 "TempOmbre": float(temp),
                 "Humidite": int(hum),
@@ -335,14 +373,38 @@ with onglet_saisie:
                 "CombinaisonCoton": bool(coton),
                 "Note": note,
                 "Statut": "En attente",
-                "TAC": round(tac, 1),
-                "Zone": zone,
+                "TAC": res["tac"],
+                "Zone": res["zone"],
                 "SaisiPar": st.user.email,
             })
-            lire_liste.clear()   # rafraîchir le cache
-            st.success("Relevé enregistré. Le PDF officiel sera généré par le traitement planifié.")
         except Exception as e:
             st.error(f"Échec de l'enregistrement : {e}")
+            st.stop()
+
+        # 2. Générer le PDF, le déposer, mettre à jour le relevé
+        try:
+            entete = {
+                "entrepreneur": cfg.get("entrepreneur", ""),
+                "chantier": chantier,
+                "responsable": cfg.get("responsable", ""),
+                "date": maintenant.date().isoformat(),
+                "heure": maintenant.strftime("%H:%M"),
+                "lieu": lieu,
+                "initiales": pdf_releve.initiales(cfg.get("responsable", "")),
+            }
+            pdf = pdf_releve.construire_pdf(res, entete)
+            chemin = (f"Relevés PDF/{_slug_chemin(chantier)}/"
+                      f"{maintenant:%Y-%m-%d_%H%M%S}.pdf")
+            url = televerser_pdf(chemin, pdf)
+            maj_releve(item["id"], {"LienPDF": {"Url": url, "Description": "PDF officiel"},
+                                    "Statut": "Traité"})
+            lire_liste.clear()
+            st.success("Relevé enregistré et PDF officiel généré. "
+                       "Retrouvez-le dans « Mes relevés ».")
+        except Exception as e:
+            lire_liste.clear()
+            st.warning("Relevé enregistré, mais le PDF n'a pas pu être généré/déposé "
+                       f"(statut « En attente ») : {e}")
 
 with onglet_releves:
     f_chantier = st.selectbox("Filtrer par chantier", ["(tous)"] + projets)
