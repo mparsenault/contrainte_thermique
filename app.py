@@ -39,6 +39,9 @@ import msal
 import requests
 import streamlit as st
 
+import tac_engine
+import pdf_releve
+
 # ─────────────────────────────── CONFIGURATION ───────────────────────────────
 GRAPH = "https://graph.microsoft.com/v1.0"
 SITE_ID = "elemgroup.sharepoint.com,04f6c13a-680e-4b41-a859-a54a57c2560c,c9267413-b94f-4272-8dde-9e516f5ac910"
@@ -52,40 +55,12 @@ INTENSITES     = ["Léger", "Moyen", "Lourd"]
 ENSOLEILLEMENTS = ["Soleil direct", "Nuageux ou ombre", "Intérieur"]
 SOURCES        = ["Sur place", "Service météo"]
 
-# Seuils TAC -> zone. ILLUSTRATIFS. À REMPLACER par la table officielle CNESST,
-# validée par la personne SST. (v = verte, p = vert pâle, j = jaune ; au-delà = rouge)
-SEUILS_CNESST = {
-    "Léger": {"v": 34, "p": 39, "j": 43},
-    "Moyen": {"v": 32, "p": 37, "j": 41},
-    "Lourd": {"v": 30, "p": 35, "j": 39},
-}
 
-# ─────────────────────────────── Calcul de la TAC ───────────────────────────────
-_HUM = {20:-2, 25:-1, 30:0, 35:0.9, 40:1.8, 45:2.7, 50:3.5, 55:4.3,
-        60:5, 65:5.7, 70:6.4, 75:7.1, 80:7.7, 85:8.3, 90:8.9}
-
-def corr_humidite(hr: float) -> float:
-    # « entre deux valeurs, retenir la plus élevée » -> arrondi au palier de 5 % supérieur
-    import math
-    b = min(90, max(20, int(math.ceil(hr / 5) * 5)))
-    return _HUM[b]
-
-def corr_soleil(ensoleillement: str, source: str) -> float:
-    if ensoleillement == "Intérieur":
-        return 0
-    if source == "Service météo":
-        return 6 if ensoleillement == "Soleil direct" else 3.5
-    return 4.5 if ensoleillement == "Soleil direct" else 2
-
-def calcul_tac(temp: float, hr: float, ensoleillement: str, source: str, coton: bool) -> float:
-    return temp + corr_humidite(hr) + corr_soleil(ensoleillement, source) + (4.4 if coton else 0)
-
-def zone_de(tac: float, intensite: str) -> str:
-    s = SEUILS_CNESST[intensite]
-    if tac < s["v"]: return "Zone verte"
-    if tac < s["p"]: return "Zone vert pâle"
-    if tac < s["j"]: return "Zone jaune"
-    return "Zone rouge"
+def _codes_entrees(ensoleillement: str, intensite: str, source: str):
+    """Libellés du formulaire -> codes attendus par tac_engine.calculer()."""
+    return (ENSOLEILLEMENTS.index(ensoleillement) + 1,
+            INTENSITES.index(intensite) + 1,
+            SOURCES.index(source) + 1)
 
 # ─────────────────────────────── Microsoft Graph (écriture) ───────────────────────────────
 @st.cache_resource
@@ -227,7 +202,6 @@ with st.sidebar:
 
 # ─────────────────────────────── Données de référence ───────────────────────────────
 projets = sorted([p.get("Title", "") for p in lire_liste(LISTE_PROJETS, "Title") if p.get("Title")])
-zones = {z.get("Title"): z for z in lire_liste(LISTE_ZONES)}   # clé = nom de zone
 
 # ─────────────────────────────── Interface ───────────────────────────────
 st.title("🌡️ Contrainte thermique — chaleur")
@@ -274,21 +248,24 @@ with onglet_saisie:
         source = st.radio("Source des données", SOURCES, horizontal=True)
         coton = st.toggle("Combinaison coton par-dessus")
 
-    # Calcul en direct (Streamlit réexécute le script à chaque interaction)
-    tac = calcul_tac(temp, hum, ensoleillement, source, coton)
-    zone = zone_de(tac, intensite)
-    reco = zones.get(zone, {})
+    # Calcul officiel via tac_engine (Streamlit réexécute le script à chaque interaction)
+    ens_code, charge_code, src_code = _codes_entrees(ensoleillement, intensite, source)
+    res = tac_engine.calculer(temp, hum, ens_code, charge_code,
+                              combinaison_coton=coton, source=src_code)
+
+    _BANDEAU = {"V": "success", "VP": "success",
+                "J1": "warning", "J2": "warning", "J3": "warning", "R": "error"}
+    pause = res["pause_min_par_heure"]
+    alt = ("ARRÊT" if pause is None else
+           "travail continu" if pause == 0 else f"pause {pause} min/h")
 
     st.divider()
     m1, m2 = st.columns([1, 2])
-    m1.metric("TAC", f"{tac:.1f} °C".replace(".", ","))
-    bandeau = {"Zone verte": m2.success, "Zone vert pâle": m2.success,
-               "Zone jaune": m2.warning, "Zone rouge": m2.error}.get(zone, m2.info)
-    bandeau(f"**{zone}** — {reco.get('Hydration', 'hydratation : voir rapport officiel')}")
-    if reco.get("MessageApp"):
-        st.caption(reco["MessageApp"])
-    st.caption("Guidance provisoire · le PDF officiel de l'IRSST fait foi. "
-               "Seuils de zone à valider avec la table CNESST (SST).")
+    m1.metric("TAC", f"{res['tac']:.1f} °C".replace(".", ","))
+    afficher = getattr(m2, _BANDEAU.get(res["code_zone"], "info"))
+    afficher(f"**Zone {res['zone']}** — hydratation 1 verre / "
+             f"{res['hydratation_min']} min · {alt}")
+    st.caption("Rapport officiel IRSST généré à l'enregistrement.")
 
     if st.button("Enregistrer le relevé", type="primary", disabled=not (chantier and lieu)):
         try:
@@ -323,7 +300,7 @@ with onglet_releves:
     if not releves:
         st.info("Aucun relevé.")
     for r in releves[:50]:
-        c = {"Zone verte": "🟢", "Zone vert pâle": "🟩", "Zone jaune": "🟡", "Zone rouge": "🔴"}.get(r.get("Zone"), "⚪")
+        c = {"Verte": "🟢", "Vert pale": "🟩", "Jaune": "🟡", "Rouge": "🔴"}.get(r.get("Zone"), "⚪")
         statut = r.get("Statut", "")
         with st.container(border=True):
             a, b = st.columns([3, 1])
