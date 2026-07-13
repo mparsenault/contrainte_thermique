@@ -150,6 +150,38 @@ def retirer_favori(item_id: str):
                         headers=_headers())
     r.raise_for_status()
 
+# ─────────────────────────────── Config par chantier (liste Projets) ───────────────────────────────
+@st.cache_data(ttl=300)
+def lire_projets_config() -> dict:
+    """{nom_chantier: {"id", "entrepreneur", "responsable", "compagnie"}}.
+    Lit TOUS les champs (pas de $select) : fonctionne même si les colonnes
+    Entrepreneur/ResponsableSST n'existent pas encore (valeurs vides)."""
+    lid = resoudre_liste(LISTE_PROJETS)
+    out, url = {}, f"{GRAPH}/sites/{SITE_ID}/lists/{lid}/items"
+    params = {"$expand": "fields", "$top": "999"}
+    while url:
+        d = requests.get(url, headers=_headers(), params=params).json()
+        for it in d.get("value", []):
+            f = it.get("fields", {})
+            nom = f.get("Title")
+            if nom:
+                out[nom] = {
+                    "id": it["id"],
+                    "entrepreneur": f.get("Entrepreneur", "") or "",
+                    "responsable": f.get("ResponsableSST", "") or "",
+                    "compagnie": f.get("Compagnie", "") or "",
+                }
+        url = d.get("@odata.nextLink"); params = None
+    return out
+
+
+def enregistrer_config_chantier(item_id: str, entrepreneur: str, responsable: str) -> None:
+    lid = resoudre_liste(LISTE_PROJETS)
+    r = requests.patch(f"{GRAPH}/sites/{SITE_ID}/lists/{lid}/items/{item_id}/fields",
+                       headers={**_headers(), "Content-Type": "application/json"},
+                       json={"Entrepreneur": entrepreneur, "ResponsableSST": responsable})
+    r.raise_for_status()
+
 # ─────────────────────────────── Authentification (login) ───────────────────────────────
 st.set_page_config(page_title="Contrainte thermique", page_icon="🌡️", layout="centered")
 
@@ -201,7 +233,8 @@ with st.sidebar:
     st.button("Se déconnecter", on_click=st.logout)
 
 # ─────────────────────────────── Données de référence ───────────────────────────────
-projets = sorted([p.get("Title", "") for p in lire_liste(LISTE_PROJETS, "Title") if p.get("Title")])
+projets_cfg = lire_projets_config()
+projets = sorted(projets_cfg.keys())
 
 # ─────────────────────────────── Interface ───────────────────────────────
 st.title("🌡️ Contrainte thermique — chaleur")
@@ -235,6 +268,26 @@ with onglet_saisie:
     if fav_only and not favoris:
         st.caption("Aucun favori — décochez la bascule pour voir tous les "
                    "chantiers et en ajouter.")
+
+    cfg = projets_cfg.get(chantier, {}) if chantier else {}
+    if chantier:
+        with st.expander("⚙️ Configurer ce chantier"):
+            e = st.text_input("Entrepreneur", value=cfg.get("entrepreneur", ""),
+                              key="cfg_entrepreneur")
+            r = st.text_input("Responsable SST", value=cfg.get("responsable", ""),
+                              key="cfg_responsable")
+            if st.button("Enregistrer la configuration"):
+                if not cfg.get("id"):
+                    st.error("Chantier introuvable dans la liste Projets.")
+                else:
+                    try:
+                        enregistrer_config_chantier(cfg["id"], e, r)
+                        lire_projets_config.clear()
+                        st.success("Configuration enregistrée.")
+                        st.rerun()
+                    except Exception as ex:
+                        st.error("Échec — vérifiez que les colonnes « Entrepreneur » "
+                                 f"et « ResponsableSST » existent dans Projets. ({ex})")
 
     col1, col2 = st.columns(2)
     with col1:
