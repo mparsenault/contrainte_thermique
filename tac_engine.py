@@ -57,16 +57,19 @@ ZONE_NOM = {
     "R":  "Rouge",
 }
 
-# Regle travail-repos (par heure de travail) - tableau EPA-OSHA / IRSST.
-# Zone jaune : pause chaque heure, duree croissante avec la TAC.
-#   J1/J2 -> 10 min ; J3 -> 15 min  (ajustable sur validation client)
+# Regle travail-repos (par heure de travail) - aide-memoire IRSST « travail a la
+# chaleur ». La table officielle ne montre que deux durees de pause :
+#   Zone jaune (J1/J2/J3) -> 10 min / heure
+#   Zone rouge (R)        -> 15 min / heure  (le rouge affiche « 15 min », pas « arret »)
+# La mise en garde « rendre les conditions securitaires » en zone rouge reste
+# portee par recommandations() et le drapeau danger_extreme (TAC >= 43,9).
 PAUSE_MIN = {
     "V":  0,
     "VP": 0,
     "J1": 10,
     "J2": 10,
-    "J3": 15,
-    "R":  None,  # arret
+    "J3": 10,
+    "R":  15,
 }
 
 ENSOLEILLEMENT = {
