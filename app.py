@@ -62,6 +62,17 @@ def _codes_entrees(ensoleillement: str, intensite: str, source: str):
             INTENSITES.index(intensite) + 1,
             SOURCES.index(source) + 1)
 
+
+def _res_depuis_releve(r: dict):
+    """Recalcule le dict tac_engine à partir des intrants stockés d'un relevé.
+    Peut lever (label inconnu / champ manquant) : à intercepter par l'appelant."""
+    ens, charge, src = _codes_entrees(r["Ensoleillement"], r["Intensite"],
+                                      r["SourceDonnes"])
+    return tac_engine.calculer(float(r["TempOmbre"]), float(r["Humidite"]),
+                               ens, charge,
+                               combinaison_coton=bool(r.get("CombinaisonCoton")),
+                               source=src)
+
 # ─────────────────────────────── Microsoft Graph (écriture) ───────────────────────────────
 @st.cache_resource
 def _msal_app():
@@ -99,7 +110,10 @@ def lire_liste(nom: str, select: str = "") -> list[dict]:
     params = {"$expand": f"fields{('($select=' + select + ')') if select else ''}", "$top": "999"}
     while url:
         d = requests.get(url, headers=_headers(), params=params).json()
-        items.extend([it.get("fields", {}) for it in d.get("value", [])])
+        for it in d.get("value", []):
+            f = it.get("fields", {})
+            f["_item_id"] = it.get("id")   # id de l'élément (requis pour patcher)
+            items.append(f)
         url = d.get("@odata.nextLink"); params = None
     return items
 
@@ -214,6 +228,38 @@ def maj_releve(item_id: str, fields: dict) -> None:
     r = requests.patch(f"{GRAPH}/sites/{SITE_ID}/lists/{lid}/items/{item_id}/fields",
                        headers={**_headers(), "Content-Type": "application/json"}, json=fields)
     r.raise_for_status()
+
+
+def deposer_pdf_releve(item_id, chantier, lieu, res, cfg, quand):
+    """Construit le PDF officiel, le dépose dans « Documents » et passe le relevé
+    à « Traité » (avec LienPDF). Partagé par la saisie et le rattrapage.
+    quand : datetime du relevé (date/heure imprimées + nom de fichier)."""
+    entete = {
+        "entrepreneur": cfg.get("entrepreneur", ""),
+        "chantier": chantier,
+        "responsable": cfg.get("responsable", ""),
+        "date": quand.date().isoformat(),
+        "heure": quand.strftime("%H:%M"),
+        "lieu": lieu,
+        "initiales": pdf_releve.initiales(cfg.get("responsable", "")),
+    }
+    pdf = pdf_releve.construire_pdf(res, entete)
+    chemin = f"Relevés PDF/{_slug_chemin(chantier)}/{quand:%Y-%m-%d_%H%M%S}.pdf"
+    url = televerser_pdf(chemin, pdf)
+    # LienPDF est une colonne « une seule ligne de texte » : Graph ne peut pas
+    # écrire de colonne Hyperlien, on stocke donc l'URL en texte brut.
+    maj_releve(item_id, {"LienPDF": url, "Statut": "Traité"})
+    return url
+
+
+def _dt_releve(s):
+    """Parse la DateHeure stockée (SharePoint peut renvoyer un « Z » UTC / des
+    microsecondes non gérés par fromisoformat sous 3.9). Repli : maintenant."""
+    s = (s or "").replace("Z", "").split(".")[0]
+    try:
+        return dt.datetime.fromisoformat(s)
+    except ValueError:
+        return dt.datetime.now()
 
 # ─────────────────────────────── Authentification (login) ───────────────────────────────
 st.set_page_config(page_title="Contrainte thermique", page_icon="🌡️", layout="centered")
@@ -393,22 +439,7 @@ with onglet_saisie:
 
         # 2. Générer le PDF, le déposer, mettre à jour le relevé
         try:
-            entete = {
-                "entrepreneur": cfg.get("entrepreneur", ""),
-                "chantier": chantier,
-                "responsable": cfg.get("responsable", ""),
-                "date": maintenant.date().isoformat(),
-                "heure": maintenant.strftime("%H:%M"),
-                "lieu": lieu,
-                "initiales": pdf_releve.initiales(cfg.get("responsable", "")),
-            }
-            pdf = pdf_releve.construire_pdf(res, entete)
-            chemin = (f"Relevés PDF/{_slug_chemin(chantier)}/"
-                      f"{maintenant:%Y-%m-%d_%H%M%S}.pdf")
-            url = televerser_pdf(chemin, pdf)
-            # LienPDF est une colonne « une seule ligne de texte » : Graph ne peut
-            # pas écrire de colonne Hyperlien, on stocke donc l'URL en texte brut.
-            maj_releve(item["id"], {"LienPDF": url, "Statut": "Traité"})
+            deposer_pdf_releve(item["id"], chantier, lieu, res, cfg, maintenant)
             lire_liste.clear()
             st.success("Relevé enregistré et PDF officiel généré. "
                        "Retrouvez-le dans « Mes relevés ».")
@@ -441,3 +472,16 @@ with onglet_releves:
                 b.link_button("PDF officiel", url)
             else:
                 b.caption(f"⏳ {statut}")
+                if statut == "En attente" and r.get("_item_id"):
+                    if b.button("Régénérer le PDF", key=f"regen_{r['_item_id']}"):
+                        try:
+                            res_r = _res_depuis_releve(r)
+                            cfg_r = projets_cfg.get(r.get("Chantier", ""), {})
+                            deposer_pdf_releve(r["_item_id"], r.get("Chantier", ""),
+                                               r.get("Lieu", ""), res_r, cfg_r,
+                                               _dt_releve(r.get("DateHeure")))
+                            lire_liste.clear()
+                            st.success("PDF généré. Relevé passé à « Traité ».")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Échec de la régénération : {e}")
