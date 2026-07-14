@@ -35,12 +35,43 @@ Prérequis liste : ajouter une colonne texte « SaisiPar » à la liste Relevés
 """
 
 import datetime as dt
+from zoneinfo import ZoneInfo
+
 import msal
 import requests
 import streamlit as st
 
 import tac_engine
 import pdf_releve
+
+# Fuseau métier (Québec) : SharePoint stocke/renvoie en UTC ; on affiche et on
+# horodate en heure locale, indépendamment du fuseau de la machine/serveur.
+TZ_LOCALE = ZoneInfo("America/Toronto")
+
+
+def _maintenant() -> dt.datetime:
+    """Maintenant, en heure locale métier (tz-aware)."""
+    return dt.datetime.now(TZ_LOCALE)
+
+
+def _parse_sp_dt(s):
+    """Parse une date SharePoint (ISO, éventuellement « Z » UTC) en datetime
+    local tz-aware. Renvoie None si vide/invalide."""
+    if not s:
+        return None
+    try:
+        d = dt.datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=dt.timezone.utc)   # SharePoint renvoie de l'UTC
+    return d.astimezone(TZ_LOCALE)
+
+
+def _fmt_dt(s) -> str:
+    """Date SharePoint -> « AAAA-MM-JJ HH:MM » en heure locale (ou '')."""
+    d = _parse_sp_dt(s)
+    return d.strftime("%Y-%m-%d %H:%M") if d else ""
 
 # ─────────────────────────────── CONFIGURATION ───────────────────────────────
 GRAPH = "https://graph.microsoft.com/v1.0"
@@ -258,7 +289,7 @@ def deposer_pdf_releve(item_id, chantier, lieu, res, cfg, quand, genere_par=""):
         "lieu": lieu,
         "initiales": pdf_releve.initiales(cfg.get("responsable", "")),
         "genere_par": genere_par,
-        "genere_le": dt.datetime.now().strftime("%Y-%m-%d à %H:%M"),
+        "genere_le": _maintenant().strftime("%Y-%m-%d à %H:%M"),
     }
     pdf = pdf_releve.construire_pdf(res, entete,
                                     logo=pdf_releve.chemin_logo(cfg.get("compagnie")))
@@ -268,16 +299,6 @@ def deposer_pdf_releve(item_id, chantier, lieu, res, cfg, quand, genere_par=""):
     # écrire de colonne Hyperlien, on stocke donc l'URL en texte brut.
     maj_releve(item_id, {"LienPDF": url, "Statut": "Traité"})
     return url
-
-
-def _dt_releve(s):
-    """Parse la DateHeure stockée (SharePoint peut renvoyer un « Z » UTC / des
-    microsecondes non gérés par fromisoformat sous 3.9). Repli : maintenant."""
-    s = (s or "").replace("Z", "").split(".")[0]
-    try:
-        return dt.datetime.fromisoformat(s)
-    except ValueError:
-        return dt.datetime.now()
 
 # ─────────────────────────────── Authentification (login) ───────────────────────────────
 st.set_page_config(page_title="Contrainte thermique", page_icon="🌡️", layout="centered")
@@ -431,7 +452,7 @@ with onglet_saisie:
                 "chantier (⚙️ ci-dessus) pour un PDF complet.")
 
     if st.button("Enregistrer le relevé", type="primary", disabled=not (chantier and lieu)):
-        maintenant = dt.datetime.now()
+        maintenant = _maintenant()
         # 1. Créer le relevé (En attente)
         try:
             item = creer_releve({
@@ -483,7 +504,7 @@ with onglet_releves:
         with st.container(border=True):
             a, b = st.columns([3, 1])
             a.write(f"{c} **{r.get('Chantier','')}** — {r.get('Lieu','')}")
-            a.caption(f"{r.get('DateHeure','')[:16].replace('T',' ')} · {r.get('Zone','')}")
+            a.caption(f"{_fmt_dt(r.get('DateHeure',''))} · {r.get('Zone','')}")
             b.metric("TAC", f"{r.get('TAC','–')} °C")
             if statut == "Traité" and r.get("LienPDF"):
                 lien = r["LienPDF"]
@@ -498,7 +519,8 @@ with onglet_releves:
                             cfg_r = projets_cfg.get(r.get("Chantier", ""), {})
                             deposer_pdf_releve(r["_item_id"], r.get("Chantier", ""),
                                                r.get("Lieu", ""), res_r, cfg_r,
-                                               _dt_releve(r.get("DateHeure")),
+                                               _parse_sp_dt(r.get("DateHeure"))
+                                               or _maintenant(),
                                                genere_par=r.get("SaisiPar", ""))
                             lire_liste.clear()
                             st.success("PDF généré. Relevé passé à « Traité ».")

@@ -9,3 +9,8 @@ requests==2.32.5
 
 # Génération du PDF officiel des relevés (Python pur, aucune dépendance système).
 reportlab==4.2.5
+
+# Base de fuseaux horaires (zoneinfo) — utile si l'environnement n'a pas les
+# données système (ex. certains conteneurs Linux). Affichage des heures en
+# America/Toronto quel que soit le fuseau du serveur.
+tzdata==2025.2
