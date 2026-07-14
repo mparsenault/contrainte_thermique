@@ -406,8 +406,9 @@ with onglet_saisie:
             chemin = (f"Relevés PDF/{_slug_chemin(chantier)}/"
                       f"{maintenant:%Y-%m-%d_%H%M%S}.pdf")
             url = televerser_pdf(chemin, pdf)
-            maj_releve(item["id"], {"LienPDF": {"Url": url, "Description": "PDF officiel"},
-                                    "Statut": "Traité"})
+            # LienPDF est une colonne « une seule ligne de texte » : Graph ne peut
+            # pas écrire de colonne Hyperlien, on stocke donc l'URL en texte brut.
+            maj_releve(item["id"], {"LienPDF": url, "Statut": "Traité"})
             lire_liste.clear()
             st.success("Relevé enregistré et PDF officiel généré. "
                        "Retrouvez-le dans « Mes relevés ».")
