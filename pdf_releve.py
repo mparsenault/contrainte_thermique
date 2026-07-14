@@ -168,11 +168,18 @@ def construire_pdf(res: dict, entete: dict, logo=None) -> bytes:
     detail_zone = _echapper(
         f"Hydratation : 1 verre / {res['hydratation_min']} min  ·  "
         f"Alternance : {_texte_pause(res['pause_min_par_heure'])}")
+    # Deux paragraphes empilés par cellule (interlignes propres) plutôt qu'un
+    # seul <br/> : évite que la grande valeur écrase le label « TAC ».
+    tac_lbl = ParagraphStyle("tac_lbl", parent=normal, fontSize=8,
+                             textColor=_GRIS, leading=10)
+    tac_val = ParagraphStyle("tac_val", parent=normal, fontSize=20,
+                             leading=22, fontName="Helvetica-Bold")
+    zone_titre = ParagraphStyle("zt", parent=normal, fontSize=13, leading=16)
+    zone_detail = ParagraphStyle("zd", parent=normal, fontSize=8, leading=11)
     bloc = Table([[
-        Paragraph(f"<font size=8 color='#6b7280'>TAC</font><br/>"
-                  f"<font size=20><b>{tac_txt}</b></font>", normal),
-        Paragraph(f"<font size=13 color='{couleur_texte_zone}'><b>{zone_txt}</b></font><br/>"
-                  f"<font size=8 color='{couleur_texte_zone}'>{detail_zone}</font>", normal),
+        [Paragraph("TAC", tac_lbl), Paragraph(tac_txt, tac_val)],
+        [Paragraph(f"<font color='{couleur_texte_zone}'><b>{zone_txt}</b></font>", zone_titre),
+         Paragraph(f"<font color='{couleur_texte_zone}'>{detail_zone}</font>", zone_detail)],
     ]], colWidths=[doc.width * 0.30, doc.width * 0.70])
     bloc.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (0, 0), colors.HexColor("#f3f4f6")),
