@@ -82,6 +82,9 @@ LISTE_RELEVES = "Relevés"
 LISTE_ZONES   = "Zones"
 LISTE_FAVORIS = "Favoris"
 
+# Dossier des PDF dans la bibliothèque « Documents » du site.
+DOSSIER_PDF = "Relevés PDF"
+
 INTENSITES     = ["Léger", "Moyen", "Lourd"]
 ENSOLEILLEMENTS = ["Soleil direct", "Nuageux ou ombre", "Intérieur"]
 SOURCES        = ["Sur place", "Service météo"]
@@ -308,6 +311,27 @@ def _nom_pdf(r: dict) -> str:
     return f"{chantier}_{quand}.pdf"
 
 
+def partager_dossier_pdf(email: str) -> None:
+    """Accorde à `email` l'accès en LECTURE au dossier des PDF (idempotent).
+    Permet à l'utilisateur d'ouvrir les PDF directement dans SharePoint.
+    Silencieux si le dossier n'existe pas encore (aucun PDF déposé)."""
+    if not email:
+        return
+    from urllib.parse import quote
+    did = _drive_id()
+    f = requests.get(f"{GRAPH}/drives/{did}/root:/{quote(DOSSIER_PDF)}",
+                     headers=_headers())
+    if f.status_code == 404:
+        return
+    _verifier(f, "accès au dossier des PDF")
+    fid = f.json()["id"]
+    r = requests.post(f"{GRAPH}/drives/{did}/items/{fid}/invite",
+                      headers={**_headers(), "Content-Type": "application/json"},
+                      json={"recipients": [{"email": email}], "requireSignIn": True,
+                            "sendInvitation": False, "roles": ["read"]})
+    _verifier(r, "partage du dossier des PDF")
+
+
 def deposer_pdf_releve(item_id, chantier, lieu, res, cfg, quand, genere_par=""):
     """Construit le PDF officiel, le dépose dans « Documents » et passe le relevé
     à « Traité » (avec LienPDF). Partagé par la saisie et le rattrapage.
@@ -326,7 +350,7 @@ def deposer_pdf_releve(item_id, chantier, lieu, res, cfg, quand, genere_par=""):
     }
     pdf = pdf_releve.construire_pdf(res, entete,
                                     logo=pdf_releve.chemin_logo(cfg.get("compagnie")))
-    chemin = f"Relevés PDF/{_slug_chemin(chantier)}/{quand:%Y-%m-%d_%H%M%S}.pdf"
+    chemin = f"{DOSSIER_PDF}/{_slug_chemin(chantier)}/{quand:%Y-%m-%d_%H%M%S}.pdf"
     url = televerser_pdf(chemin, pdf)
     # LienPDF est une colonne « une seule ligne de texte » : Graph ne peut pas
     # écrire de colonne Hyperlien, on stocke donc l'URL en texte brut.
@@ -382,6 +406,15 @@ if not st.user.is_logged_in:
 with st.sidebar:
     st.write(f"Connecté : **{st.user.name}**")
     st.button("Se déconnecter", on_click=st.logout)
+
+# Donne à l'utilisateur l'accès lecture au dossier des PDF (1 fois par session,
+# silencieux) pour qu'il puisse aussi les ouvrir directement dans SharePoint.
+if not st.session_state.get("_partage_pdf"):
+    try:
+        partager_dossier_pdf(st.user.email)
+    except Exception:
+        pass
+    st.session_state["_partage_pdf"] = True
 
 # ─────────────────────────────── Données de référence ───────────────────────────────
 projets_cfg = lire_projets_config()
