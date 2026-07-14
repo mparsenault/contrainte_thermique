@@ -288,6 +288,26 @@ def maj_releve(item_id: str, fields: dict) -> None:
     _verifier(r, "mise à jour du relevé")
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def telecharger_pdf(url: str) -> bytes:
+    """Récupère les octets d'un PDF via l'identité applicative (endpoint /shares),
+    pour que l'app le serve elle-même — l'utilisateur n'a donc pas besoin d'accès
+    SharePoint. `url` = LienPDF (URL web du fichier)."""
+    import base64
+    sid = "u!" + base64.urlsafe_b64encode(url.encode()).decode().rstrip("=")
+    r = requests.get(f"{GRAPH}/shares/{sid}/driveItem/content", headers=_headers())
+    _verifier(r, "téléchargement du PDF")
+    return r.content
+
+
+def _nom_pdf(r: dict) -> str:
+    """Nom de fichier proposé au téléchargement."""
+    d = _parse_sp_dt(r.get("DateHeure"))
+    quand = d.strftime("%Y-%m-%d_%H%M") if d else "releve"
+    chantier = _slug_chemin(r.get("Chantier", "releve")).replace(" ", "_")
+    return f"{chantier}_{quand}.pdf"
+
+
 def deposer_pdf_releve(item_id, chantier, lieu, res, cfg, quand, genere_par=""):
     """Construit le PDF officiel, le dépose dans « Documents » et passe le relevé
     à « Traité » (avec LienPDF). Partagé par la saisie et le rattrapage.
@@ -525,7 +545,21 @@ with onglet_releves:
             if statut == "Traité" and r.get("LienPDF"):
                 lien = r["LienPDF"]
                 url = lien.get("Url") if isinstance(lien, dict) else lien
-                b.link_button("PDF officiel", url)
+                iid = r.get("_item_id")
+                cle = f"pdf_{iid}"
+                # L'app sert le PDF via son identité : pas besoin d'accès SharePoint
+                # pour l'utilisateur. Récupération à la demande (1er clic), puis
+                # bouton d'enregistrement.
+                if cle in st.session_state:
+                    b.download_button("⬇ Enregistrer le PDF", st.session_state[cle],
+                                      file_name=_nom_pdf(r), mime="application/pdf",
+                                      key=f"save_{iid}")
+                elif b.button("PDF officiel", key=f"get_{iid}"):
+                    try:
+                        st.session_state[cle] = telecharger_pdf(url)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"PDF indisponible : {e}")
             else:
                 b.caption(f"⏳ {statut}")
                 if statut == "En attente" and r.get("_item_id"):
