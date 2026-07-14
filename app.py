@@ -538,7 +538,10 @@ with onglet_releves:
     f_chantier = st.selectbox("Filtrer par chantier", ["(tous)"] + projets,
                               format_func=lambda n: "(tous)" if n == "(tous)"
                               else libelle_chantier(n))
-    releves = lire_liste(LISTE_RELEVES)
+    # « Mes relevés » : uniquement ceux saisis par l'utilisateur connecté.
+    moi = (st.user.email or "").strip().lower()
+    releves = [r for r in lire_liste(LISTE_RELEVES)
+               if (r.get("SaisiPar") or "").strip().lower() == moi]
     releves = [r for r in releves if f_chantier == "(tous)" or r.get("Chantier") == f_chantier]
     releves.sort(key=lambda r: r.get("DateHeure", ""), reverse=True)
 
