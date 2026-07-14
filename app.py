@@ -243,7 +243,8 @@ def deposer_pdf_releve(item_id, chantier, lieu, res, cfg, quand):
         "lieu": lieu,
         "initiales": pdf_releve.initiales(cfg.get("responsable", "")),
     }
-    pdf = pdf_releve.construire_pdf(res, entete)
+    pdf = pdf_releve.construire_pdf(res, entete,
+                                    logo=pdf_releve.chemin_logo(cfg.get("compagnie")))
     chemin = f"Relevés PDF/{_slug_chemin(chantier)}/{quand:%Y-%m-%d_%H%M%S}.pdf"
     url = televerser_pdf(chemin, pdf)
     # LienPDF est une colonne « une seule ligne de texte » : Graph ne peut pas

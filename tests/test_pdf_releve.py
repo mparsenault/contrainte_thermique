@@ -1,5 +1,11 @@
+import base64
 import tac_engine
 import pdf_releve
+
+# PNG 1×1 valide (pixel unique) pour tester l'insertion d'un logo sans dépendance.
+_PNG_1x1 = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNk"
+    "+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
 
 
 def test_initiales():
@@ -47,3 +53,33 @@ def test_construire_pdf_gere_entete_vide():
 def test_echapper_neutralise_les_chevrons():
     assert pdf_releve._echapper("Poste Atwater <Est>") == "Poste Atwater &lt;Est&gt;"
     assert pdf_releve._echapper(None) == ""
+
+
+def test_slug_compagnie():
+    assert pdf_releve._slug_compagnie("Ondel") == "ondel"
+    assert pdf_releve._slug_compagnie("Industro-tech") == "industro-tech"
+    assert pdf_releve._slug_compagnie("  Quantech  ") == "quantech"
+    assert pdf_releve._slug_compagnie("") == ""
+    assert pdf_releve._slug_compagnie(None) == ""
+
+
+def test_chemin_logo(tmp_path):
+    # fichier présent -> chemin ; absent / vide -> None
+    (tmp_path / "ondel.png").write_bytes(_PNG_1x1)
+    assert pdf_releve.chemin_logo("Ondel", dossier=tmp_path) == str(tmp_path / "ondel.png")
+    assert pdf_releve.chemin_logo("Inconnue", dossier=tmp_path) is None
+    assert pdf_releve.chemin_logo("", dossier=tmp_path) is None
+    assert pdf_releve.chemin_logo(None, dossier=tmp_path) is None
+
+
+def test_construire_pdf_avec_logo_octets():
+    data = pdf_releve.construire_pdf(_res_exemple(), _entete_exemple(), logo=_PNG_1x1)
+    assert bytes(data[:5]) == b"%PDF-"
+    assert b"%%EOF" in bytes(data[-1024:])
+
+
+def test_construire_pdf_logo_introuvable_ne_plante_pas():
+    # chemin bidon : la bande logo est simplement omise, pas d'exception
+    data = pdf_releve.construire_pdf(_res_exemple(), _entete_exemple(),
+                                     logo="/inexistant/pas_un_logo.png")
+    assert bytes(data[:5]) == b"%PDF-"

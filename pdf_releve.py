@@ -5,17 +5,24 @@ construire_pdf(...) renvoie les octets du PDF.
 """
 from __future__ import annotations
 import io
+import os
 import re
+import unicodedata
 import xml.sax.saxutils as _sax
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
+from reportlab.lib.utils import ImageReader
 from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle,
-                                Paragraph, Spacer)
+                                Paragraph, Spacer, Image, HRFlowable)
 
 import tac_engine
+
+# Dossier des logos de compagnies, embarqué avec le module.
+_DOSSIER_LOGOS = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "assets", "logos")
 
 # Couleur du bandeau selon le code de zone du moteur.
 _COULEUR_ZONE = {
@@ -41,6 +48,46 @@ def _echapper(s) -> str:
     return _sax.escape("" if s is None else str(s))
 
 
+def _slug_compagnie(nom) -> str:
+    """Nom de compagnie -> slug de fichier (minuscules, sans accents).
+    Ex. « Industro-tech » -> « industro-tech »."""
+    s = unicodedata.normalize("NFKD", (nom or "").strip()).encode("ascii", "ignore").decode()
+    s = re.sub(r"[^a-zA-Z0-9]+", "-", s).strip("-").lower()
+    return s
+
+
+def chemin_logo(compagnie, dossier=None):
+    """Chemin du PNG de logo pour cette compagnie, ou None s'il n'existe pas.
+    `dossier` : répertoire des logos (défaut : assets/logos embarqué)."""
+    slug = _slug_compagnie(compagnie)
+    if not slug:
+        return None
+    dossier = _DOSSIER_LOGOS if dossier is None else str(dossier)
+    chemin = os.path.join(dossier, f"{slug}.png")
+    return chemin if os.path.isfile(chemin) else None
+
+
+def _flowable_logo(logo, largeur_max):
+    """Construit l'Image du logo (chemin ou octets), calée à ~14 mm de haut,
+    largeur plafonnée à `largeur_max`. Retourne None si illisible."""
+    try:
+        src = io.BytesIO(logo) if isinstance(logo, (bytes, bytearray)) else logo
+        iw, ih = ImageReader(src).getSize()
+        if iw <= 0 or ih <= 0:
+            return None
+        h = 14 * mm
+        w = iw * (h / ih)
+        if w > largeur_max:              # logo très large : borner par la largeur
+            w = largeur_max
+            h = ih * (w / iw)
+        src2 = io.BytesIO(logo) if isinstance(logo, (bytes, bytearray)) else logo
+        img = Image(src2, width=w, height=h)
+        img.hAlign = "LEFT"
+        return img
+    except Exception:
+        return None
+
+
 def _texte_pause(pause) -> str:
     if pause is None:
         return "ARRÊT — rendre les conditions sécuritaires"
@@ -49,7 +96,9 @@ def _texte_pause(pause) -> str:
     return f"pause {pause} min / heure"
 
 
-def construire_pdf(res: dict, entete: dict) -> bytes:
+def construire_pdf(res: dict, entete: dict, logo=None) -> bytes:
+    """logo : chemin PNG/JPG ou octets d'image. Si fourni et lisible, une bande
+    claire avec le logo (aligné à gauche) est ajoutée en tête. Sinon ignorée."""
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=letter,
                             leftMargin=18 * mm, rightMargin=18 * mm,
@@ -65,6 +114,15 @@ def construire_pdf(res: dict, entete: dict) -> bytes:
                            textColor=_GRIS, spaceAfter=2)
 
     story = []
+
+    # Bande logo compagnie (optionnelle) : logo à gauche + filet fin.
+    if logo is not None:
+        img = _flowable_logo(logo, doc.width)
+        if img is not None:
+            story.append(img)
+            story.append(Spacer(1, 6))
+            story.append(HRFlowable(width="100%", thickness=0.5, color=_LIGNE,
+                                    spaceAfter=8))
 
     # Bandeau de titre
     bandeau_titre = Table(
