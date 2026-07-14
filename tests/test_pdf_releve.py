@@ -83,3 +83,18 @@ def test_construire_pdf_logo_introuvable_ne_plante_pas():
     data = pdf_releve.construire_pdf(_res_exemple(), _entete_exemple(),
                                      logo="/inexistant/pas_un_logo.png")
     assert bytes(data[:5]) == b"%PDF-"
+
+
+def test_construire_pdf_avec_pied_de_page():
+    entete = _entete_exemple()
+    entete["genere_par"] = "mparsenault@elem.global"
+    entete["genere_le"] = "2026-07-14 à 14:03"
+    data = pdf_releve.construire_pdf(_res_exemple(), entete)
+    assert bytes(data[:5]) == b"%PDF-"
+    assert b"%%EOF" in bytes(data[-1024:])
+
+
+def test_construire_pdf_sans_genere_par_pas_de_pied():
+    # entête sans genere_par : pas de pied de page, pas d'erreur
+    data = pdf_releve.construire_pdf(_res_exemple(), _entete_exemple())
+    assert bytes(data[:5]) == b"%PDF-"

@@ -222,5 +222,18 @@ def construire_pdf(res: dict, entete: dict, logo=None) -> bytes:
         story.append(Paragraph(f"• {_echapper(r)}", normal))
         story.append(Spacer(1, 2))
 
+    # Pied de page : qui a généré le document (et quand).
+    genere_par = entete.get("genere_par", "")
+    if genere_par:
+        pied = ParagraphStyle("pied", parent=styles["Normal"], fontSize=7.5,
+                              textColor=_GRIS)
+        texte = f"Document généré par {_echapper(genere_par)}"
+        if entete.get("genere_le"):
+            texte += f" le {_echapper(entete['genere_le'])}"
+        story.append(Spacer(1, 16))
+        story.append(HRFlowable(width="100%", thickness=0.5, color=_LIGNE,
+                                spaceAfter=6))
+        story.append(Paragraph(texte, pied))
+
     doc.build(story)
     return buf.getvalue()

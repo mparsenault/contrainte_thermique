@@ -244,10 +244,11 @@ def maj_releve(item_id: str, fields: dict) -> None:
     _verifier(r, "mise à jour du relevé")
 
 
-def deposer_pdf_releve(item_id, chantier, lieu, res, cfg, quand):
+def deposer_pdf_releve(item_id, chantier, lieu, res, cfg, quand, genere_par=""):
     """Construit le PDF officiel, le dépose dans « Documents » et passe le relevé
     à « Traité » (avec LienPDF). Partagé par la saisie et le rattrapage.
-    quand : datetime du relevé (date/heure imprimées + nom de fichier)."""
+    quand : datetime du relevé (date/heure imprimées + nom de fichier).
+    genere_par : identité (courriel) affichée au pied du PDF."""
     entete = {
         "entrepreneur": cfg.get("entrepreneur", ""),
         "chantier": chantier,
@@ -256,6 +257,8 @@ def deposer_pdf_releve(item_id, chantier, lieu, res, cfg, quand):
         "heure": quand.strftime("%H:%M"),
         "lieu": lieu,
         "initiales": pdf_releve.initiales(cfg.get("responsable", "")),
+        "genere_par": genere_par,
+        "genere_le": dt.datetime.now().strftime("%Y-%m-%d à %H:%M"),
     }
     pdf = pdf_releve.construire_pdf(res, entete,
                                     logo=pdf_releve.chemin_logo(cfg.get("compagnie")))
@@ -454,7 +457,8 @@ with onglet_saisie:
 
         # 2. Générer le PDF, le déposer, mettre à jour le relevé
         try:
-            deposer_pdf_releve(item["id"], chantier, lieu, res, cfg, maintenant)
+            deposer_pdf_releve(item["id"], chantier, lieu, res, cfg, maintenant,
+                               genere_par=st.user.email)
             lire_liste.clear()
             st.success("Relevé enregistré et PDF officiel généré. "
                        "Retrouvez-le dans « Mes relevés ».")
@@ -494,7 +498,8 @@ with onglet_releves:
                             cfg_r = projets_cfg.get(r.get("Chantier", ""), {})
                             deposer_pdf_releve(r["_item_id"], r.get("Chantier", ""),
                                                r.get("Lieu", ""), res_r, cfg_r,
-                                               _dt_releve(r.get("DateHeure")))
+                                               _dt_releve(r.get("DateHeure")),
+                                               genere_par=r.get("SaisiPar", ""))
                             lire_liste.clear()
                             st.success("PDF généré. Relevé passé à « Traité ».")
                             st.rerun()
