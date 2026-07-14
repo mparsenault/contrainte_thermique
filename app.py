@@ -104,6 +104,19 @@ def _res_depuis_releve(r: dict):
                                combinaison_coton=bool(r.get("CombinaisonCoton")),
                                source=src)
 
+
+def _reco_courte(r: dict) -> str:
+    """Recommandation concise (hydratation + pause) d'un relevé, reconstruite
+    depuis ses intrants. '' si les intrants sont incomplets."""
+    try:
+        res = _res_depuis_releve(r)
+    except Exception:
+        return ""
+    pause = res["pause_min_par_heure"]
+    alt = ("arrêt" if pause is None else
+           "travail continu" if pause == 0 else f"pause {pause} min/h")
+    return f"💧 1 verre / {res['hydratation_min']} min · ⏸ {alt}"
+
 # ─────────────────────────────── Microsoft Graph (écriture) ───────────────────────────────
 @st.cache_resource
 def _msal_app():
@@ -505,6 +518,9 @@ with onglet_releves:
             a, b = st.columns([3, 1])
             a.write(f"{c} **{r.get('Chantier','')}** — {r.get('Lieu','')}")
             a.caption(f"{_fmt_dt(r.get('DateHeure',''))} · {r.get('Zone','')}")
+            reco = _reco_courte(r)
+            if reco:
+                a.caption(reco)
             b.metric("TAC", f"{r.get('TAC','–')} °C")
             if statut == "Traité" and r.get("LienPDF"):
                 lien = r["LienPDF"]
