@@ -92,6 +92,20 @@ def graph_token() -> str:
 def _headers():
     return {"Authorization": f"Bearer {graph_token()}"}
 
+
+def _verifier(r, action=""):
+    """Comme raise_for_status(), mais inclut le message d'erreur renvoyé par
+    Graph (raise_for_status ne donne que le code, ce qui rend le diagnostic
+    aveugle). `action` : libellé court pour situer l'appel."""
+    if r.status_code >= 400:
+        try:
+            detail = r.json().get("error", {}).get("message", "") or r.text
+        except Exception:
+            detail = r.text or ""
+        raise RuntimeError(f"{action or 'Graph'} — HTTP {r.status_code} : "
+                           f"{detail[:400]}")
+    return r
+
 @st.cache_data(ttl=300)
 def resoudre_liste(nom: str) -> str:
     url = f"{GRAPH}/sites/{SITE_ID}/lists?$select=id,displayName,name&$top=200"
@@ -122,7 +136,7 @@ def creer_releve(fields: dict):
     r = requests.post(f"{GRAPH}/sites/{SITE_ID}/lists/{lid}/items",
                       headers={**_headers(), "Content-Type": "application/json"},
                       json={"fields": fields})
-    r.raise_for_status()
+    _verifier(r, "création du relevé")
     return r.json()
 
 # ─────────────────────────────── Favoris (par utilisateur) ───────────────────────────────
@@ -156,13 +170,13 @@ def ajouter_favori(chantier: str, email: str):
     r = requests.post(f"{GRAPH}/sites/{SITE_ID}/lists/{lid}/items",
                       headers={**_headers(), "Content-Type": "application/json"},
                       json={"fields": {"Title": chantier, "UserEmail": email}})
-    r.raise_for_status()
+    _verifier(r, "ajout du favori")
 
 def retirer_favori(item_id: str):
     lid = _id_liste_favoris()
     r = requests.delete(f"{GRAPH}/sites/{SITE_ID}/lists/{lid}/items/{item_id}",
                         headers=_headers())
-    r.raise_for_status()
+    _verifier(r, "retrait du favori")
 
 # ─────────────────────────────── Config par chantier (liste Projets) ───────────────────────────────
 @st.cache_data(ttl=300)
@@ -195,13 +209,13 @@ def enregistrer_config_chantier(item_id: str, entrepreneur: str, responsable: st
     r = requests.patch(f"{GRAPH}/sites/{SITE_ID}/lists/{lid}/items/{item_id}/fields",
                        headers={**_headers(), "Content-Type": "application/json"},
                        json={"Entrepreneur": entrepreneur, "ResponsableSST": responsable})
-    r.raise_for_status()
+    _verifier(r, "enregistrement de la config du chantier")
 
 # ─────────────────────────────── Fichiers (bibliothèque Documents) ───────────────────────────────
 @st.cache_data(ttl=300)
 def _drive_id() -> str:
     r = requests.get(f"{GRAPH}/sites/{SITE_ID}/drive?$select=id", headers=_headers())
-    r.raise_for_status()
+    _verifier(r, "accès à la bibliothèque Documents")
     return r.json()["id"]
 
 
@@ -219,7 +233,7 @@ def televerser_pdf(chemin_relatif: str, donnees: bytes) -> str:
     url = f"{GRAPH}/drives/{did}/root:/{quote(chemin_relatif)}:/content"
     r = requests.put(url, headers={**_headers(), "Content-Type": "application/pdf"},
                      data=donnees)
-    r.raise_for_status()
+    _verifier(r, "téléversement du PDF")
     return r.json()["webUrl"]
 
 
@@ -227,7 +241,7 @@ def maj_releve(item_id: str, fields: dict) -> None:
     lid = resoudre_liste(LISTE_RELEVES)
     r = requests.patch(f"{GRAPH}/sites/{SITE_ID}/lists/{lid}/items/{item_id}/fields",
                        headers={**_headers(), "Content-Type": "application/json"}, json=fields)
-    r.raise_for_status()
+    _verifier(r, "mise à jour du relevé")
 
 
 def deposer_pdf_releve(item_id, chantier, lieu, res, cfg, quand):
