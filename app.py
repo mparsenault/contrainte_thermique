@@ -547,6 +547,36 @@ with onglet_releves:
                if f_chantier == "(tous)" or r.get("Chantier") == f_chantier]
     releves.sort(key=lambda r: r.get("DateHeure", ""), reverse=True)
 
+    # Export : rapport PDF sommaire du chantier filtré (toutes les entrées,
+    # pas seulement les 50 affichées), en ordre chronologique.
+    if f_chantier != "(tous)" and releves:
+        cfg_rap = projets_cfg.get(f_chantier, {})
+        chrono = sorted(releves, key=lambda r: r.get("DateHeure", ""))
+        lignes = [{
+            "date": _fmt_dt(r.get("DateHeure", "")),
+            "lieu": r.get("Lieu", ""),
+            "temp": r.get("TempOmbre"),
+            "hum": r.get("Humidite"),
+            "tac": r.get("TAC"),
+            "zone": r.get("Zone", ""),
+            "saisi_par": r.get("SaisiPar", ""),
+        } for r in chrono]
+        entete_rap = {
+            "entrepreneur": cfg_rap.get("entrepreneur", ""),
+            "chantier": libelle_chantier(f_chantier),
+            "responsable": cfg_rap.get("responsable", ""),
+            "periode": f"{lignes[0]['date']} au {lignes[-1]['date']}",
+            "genere_par": st.user.email,
+            "genere_le": _maintenant().strftime("%Y-%m-%d à %H:%M"),
+        }
+        pdf_rap = pdf_releve.construire_pdf_rapport(
+            entete_rap, lignes,
+            logo=pdf_releve.chemin_logo(cfg_rap.get("compagnie")))
+        st.download_button(
+            "📄 Exporter le rapport sommaire (PDF)", data=pdf_rap,
+            file_name=f"rapport_{_slug_chemin(f_chantier)}_{_maintenant():%Y-%m-%d}.pdf",
+            mime="application/pdf")
+
     if not releves:
         st.info("Aucun relevé.")
     for r in releves[:50]:

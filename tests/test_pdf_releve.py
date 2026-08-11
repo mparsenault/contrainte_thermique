@@ -98,3 +98,37 @@ def test_construire_pdf_sans_genere_par_pas_de_pied():
     # entête sans genere_par : pas de pied de page, pas d'erreur
     data = pdf_releve.construire_pdf(_res_exemple(), _entete_exemple())
     assert bytes(data[:5]) == b"%PDF-"
+
+
+def _lignes_exemple():
+    return [
+        {"date": "2026-07-13 09:10", "lieu": "Aire de coulage Est", "temp": 27.0,
+         "hum": 55, "tac": 28.4, "zone": "Verte", "saisi_par": "a@elem.global"},
+        {"date": "2026-07-13 13:45", "lieu": "Toiture", "temp": 31.5,
+         "hum": 60, "tac": 34.1, "zone": "Rouge", "saisi_par": "b@elem.global"},
+    ]
+
+
+def test_construire_pdf_rapport_retourne_des_octets_pdf():
+    entete = {"entrepreneur": "Ondel", "chantier": "1234 · Poste Atwater",
+              "responsable": "Marie-Pier Arsenault",
+              "periode": "2026-07-13 09:10 au 2026-07-13 13:45",
+              "genere_par": "mparsenault@elem.global",
+              "genere_le": "2026-08-11 à 10:00"}
+    data = pdf_releve.construire_pdf_rapport(entete, _lignes_exemple())
+    assert isinstance(data, (bytes, bytearray))
+    assert bytes(data[:5]) == b"%PDF-"
+    assert b"%%EOF" in bytes(data[-1024:])
+
+
+def test_construire_pdf_rapport_champs_manquants_ne_plante_pas():
+    # Vieux relevés : température/humidité/TAC absents, zone inconnue.
+    lignes = [{"date": "", "lieu": "", "temp": None, "hum": None,
+               "tac": None, "zone": "", "saisi_par": ""}]
+    data = pdf_releve.construire_pdf_rapport({}, lignes)
+    assert bytes(data[:5]) == b"%PDF-"
+
+
+def test_construire_pdf_rapport_avec_logo_octets():
+    data = pdf_releve.construire_pdf_rapport({}, _lignes_exemple(), logo=_PNG_1x1)
+    assert bytes(data[:5]) == b"%PDF-"

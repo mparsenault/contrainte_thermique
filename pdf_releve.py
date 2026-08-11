@@ -237,3 +237,154 @@ def construire_pdf(res: dict, entete: dict, logo=None) -> bytes:
 
     doc.build(story)
     return buf.getvalue()
+
+
+# Couleur de zone par libellé stocké dans SharePoint (le rapport sommaire reçoit
+# le libellé, pas le code du moteur).
+_COULEUR_ZONE_LIBELLE = {
+    "Verte": _COULEUR_ZONE["V"],
+    "Vert pale": _COULEUR_ZONE["VP"],
+    "Jaune": _COULEUR_ZONE["J1"],
+    "Rouge": _COULEUR_ZONE["R"],
+}
+
+
+def construire_pdf_rapport(entete: dict, lignes: list, logo=None) -> bytes:
+    """Rapport sommaire des relevés d'un chantier : en-tête d'identité, décompte
+    par zone, puis tableau chronologique (une ligne par relevé).
+
+    entete : entrepreneur, chantier, responsable, periode, genere_par, genere_le.
+    lignes : dicts {date, lieu, temp, hum, tac, zone, saisi_par} — date déjà
+             formatée ; temp/hum/tac numériques ou None (affichés « – »).
+    logo   : chemin PNG/JPG ou octets d'image (même convention que construire_pdf).
+    """
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=letter,
+                            leftMargin=18 * mm, rightMargin=18 * mm,
+                            topMargin=16 * mm, bottomMargin=16 * mm,
+                            title="Rapport sommaire — contrainte thermique")
+    styles = getSampleStyleSheet()
+    normal = ParagraphStyle("n", parent=styles["Normal"], fontSize=9, leading=13)
+    titre = ParagraphStyle("t", parent=styles["Normal"], fontSize=15,
+                           textColor=colors.white, fontName="Helvetica-Bold")
+    sous = ParagraphStyle("s", parent=styles["Normal"], fontSize=8,
+                          textColor=colors.HexColor("#cbd5e1"))
+    label = ParagraphStyle("l", parent=styles["Normal"], fontSize=8,
+                           textColor=_GRIS, spaceAfter=2)
+    cellule = ParagraphStyle("c", parent=styles["Normal"], fontSize=8, leading=10)
+    cellule_tete = ParagraphStyle("ct", parent=cellule, textColor=colors.white,
+                                  fontName="Helvetica-Bold")
+
+    story = []
+
+    if logo is not None:
+        img = _flowable_logo(logo, doc.width)
+        if img is not None:
+            story.append(img)
+            story.append(Spacer(1, 6))
+            story.append(HRFlowable(width="100%", thickness=0.5, color=_LIGNE,
+                                    spaceAfter=8))
+
+    bandeau_titre = Table(
+        [[Paragraph("Contrainte thermique — Chaleur", titre)],
+         [Paragraph("Rapport sommaire des relevés · Outil IRSST (TAC)", sous)]],
+        colWidths=[doc.width])
+    bandeau_titre.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), _FONCE),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (0, 0), 8),
+        ("BOTTOMPADDING", (0, -1), (-1, -1), 8),
+    ]))
+    story.append(bandeau_titre)
+    story.append(Spacer(1, 8))
+
+    lignes_entete = [
+        ("Entrepreneur", entete.get("entrepreneur", "")),
+        ("Chantier / Projet", entete.get("chantier", "")),
+        ("Responsable SST", entete.get("responsable", "")),
+        ("Période couverte", entete.get("periode", "")),
+        ("Nombre de relevés", str(len(lignes))),
+    ]
+    t_entete = Table([[Paragraph(_echapper(k), label), Paragraph(_echapper(v), normal)]
+                      for k, v in lignes_entete],
+                     colWidths=[doc.width * 0.32, doc.width * 0.68])
+    t_entete.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+    ]))
+    story.append(t_entete)
+    story.append(Spacer(1, 10))
+
+    # Décompte par zone + TAC max, sur une ligne.
+    def _fmt_temp(v):
+        if v is None or v == "":
+            return "–"
+        try:
+            return f"{float(v):.1f}".replace(".", ",")
+        except (TypeError, ValueError):
+            return str(v)
+
+    tacs = [float(l["tac"]) for l in lignes
+            if l.get("tac") not in (None, "")]
+    morceaux = []
+    for z in ("Verte", "Vert pale", "Jaune", "Rouge"):
+        n = sum(1 for l in lignes if l.get("zone") == z)
+        if n:
+            morceaux.append(f"{z} : {n}")
+    if tacs:
+        morceaux.append(f"TAC max : {_fmt_temp(max(tacs))} °C")
+    if morceaux:
+        story.append(Paragraph("SOMMAIRE", label))
+        story.append(Paragraph(_echapper("  ·  ".join(morceaux)), normal))
+        story.append(Spacer(1, 10))
+
+    # Tableau des relevés.
+    story.append(Paragraph("RELEVÉS", label))
+    tete = ["Date / Heure", "Lieu", "T° ombre", "Hum.", "TAC", "Zone", "Saisi par"]
+    donnees = [[Paragraph(_echapper(t), cellule_tete) for t in tete]]
+    for l in lignes:
+        donnees.append([
+            Paragraph(_echapper(l.get("date", "")), cellule),
+            Paragraph(_echapper(l.get("lieu", "")), cellule),
+            Paragraph(_echapper(f"{_fmt_temp(l.get('temp'))} °C"), cellule),
+            Paragraph(_echapper(f"{l.get('hum')} %" if l.get("hum") not in (None, "") else "–"), cellule),
+            Paragraph(_echapper(f"{_fmt_temp(l.get('tac'))} °C"), cellule),
+            Paragraph(_echapper(l.get("zone", "")), cellule),
+            Paragraph(_echapper(l.get("saisi_par", "")), cellule),
+        ])
+    t = Table(donnees, repeatRows=1,
+              colWidths=[doc.width * w for w in
+                         (0.16, 0.20, 0.09, 0.08, 0.09, 0.12, 0.26)])
+    style = [
+        ("BACKGROUND", (0, 0), (-1, 0), _FONCE),
+        ("LINEBELOW", (0, 0), (-1, -1), 0.5, _LIGNE),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+    ]
+    # Pastille de couleur : fond de la cellule « Zone » selon la zone du relevé.
+    for i, l in enumerate(lignes, start=1):
+        c = _COULEUR_ZONE_LIBELLE.get(l.get("zone"))
+        if c is not None:
+            style.append(("BACKGROUND", (5, i), (5, i), c))
+    t.setStyle(TableStyle(style))
+    story.append(t)
+
+    genere_par = entete.get("genere_par", "")
+    if genere_par:
+        pied = ParagraphStyle("pied", parent=styles["Normal"], fontSize=7.5,
+                              textColor=_GRIS)
+        texte = f"Document généré par {_echapper(genere_par)}"
+        if entete.get("genere_le"):
+            texte += f" le {_echapper(entete['genere_le'])}"
+        story.append(Spacer(1, 16))
+        story.append(HRFlowable(width="100%", thickness=0.5, color=_LIGNE,
+                                spaceAfter=6))
+        story.append(Paragraph(texte, pied))
+
+    doc.build(story)
+    return buf.getvalue()
