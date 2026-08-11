@@ -383,10 +383,6 @@ if not st.user.is_logged_in:
     st.button("Se connecter", on_click=st.login, args=("microsoft",), type="primary")
     st.stop()
 
-with st.sidebar:
-    st.write(f"Connecté : **{st.user.name}**")
-    st.button("Se déconnecter", on_click=st.logout)
-
 # Donne à l'utilisateur l'accès lecture au dossier des PDF (1 fois par session,
 # silencieux) pour qu'il puisse aussi les ouvrir directement dans SharePoint.
 if not st.session_state.get("_partage_pdf"):
@@ -409,7 +405,15 @@ def libelle_chantier(nom: str) -> str:
     return f"{no} · {nom}" if no else nom
 
 # ─────────────────────────────── Interface ───────────────────────────────
-st.title("🌡️ Contrainte thermique — chaleur")
+# Compte utilisateur en haut à droite (remplace la sidebar : rien dans
+# st.sidebar => Streamlit ne dessine ni la barre ni sa flèche).
+c_titre, c_compte = st.columns([6, 1], vertical_alignment="center")
+with c_titre:
+    st.title("🌡️ Contrainte thermique — chaleur")
+with c_compte:
+    with st.popover("👤"):
+        st.write(f"Connecté : **{st.user.name}**")
+        st.button("Se déconnecter", on_click=st.logout)
 st.caption("Calcul de la TAC en direct · saisie envoyée dans SharePoint pour génération du PDF officiel.")
 onglet_saisie, onglet_releves = st.tabs(["Nouveau relevé", "Mes relevés"])
 
