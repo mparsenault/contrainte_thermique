@@ -552,15 +552,29 @@ with onglet_releves:
     if f_chantier != "(tous)" and releves:
         cfg_rap = projets_cfg.get(f_chantier, {})
         chrono = sorted(releves, key=lambda r: r.get("DateHeure", ""))
-        lignes = [{
-            "date": _fmt_dt(r.get("DateHeure", "")),
-            "lieu": r.get("Lieu", ""),
-            "temp": r.get("TempOmbre"),
-            "hum": r.get("Humidite"),
-            "tac": r.get("TAC"),
-            "zone": r.get("Zone", ""),
-            "saisi_par": r.get("SaisiPar", ""),
-        } for r in chrono]
+        lignes = []
+        for r in chrono:
+            # Hydratation et pause reconstruites depuis les intrants stockés ;
+            # « – » si un vieux relevé est incomplet.
+            try:
+                res_r = _res_depuis_releve(r)
+                hydratation = f"1 verre / {res_r['hydratation_min']} min"
+                p = res_r["pause_min_par_heure"]
+                pause = ("ARRÊT" if p is None else
+                         "continu" if p == 0 else f"{p} min / h")
+            except Exception:
+                hydratation = pause = "–"
+            lignes.append({
+                "date": _fmt_dt(r.get("DateHeure", "")),
+                "lieu": r.get("Lieu", ""),
+                "temp": r.get("TempOmbre"),
+                "hum": r.get("Humidite"),
+                "tac": r.get("TAC"),
+                "zone": r.get("Zone", ""),
+                "hydratation": hydratation,
+                "pause": pause,
+                "saisi_par": r.get("SaisiPar", ""),
+            })
         entete_rap = {
             "entrepreneur": cfg_rap.get("entrepreneur", ""),
             "chantier": libelle_chantier(f_chantier),

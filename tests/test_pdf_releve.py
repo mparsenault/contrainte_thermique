@@ -103,9 +103,13 @@ def test_construire_pdf_sans_genere_par_pas_de_pied():
 def _lignes_exemple():
     return [
         {"date": "2026-07-13 09:10", "lieu": "Aire de coulage Est", "temp": 27.0,
-         "hum": 55, "tac": 28.4, "zone": "Verte", "saisi_par": "a@elem.global"},
+         "hum": 55, "tac": 28.4, "zone": "Verte",
+         "hydratation": "1 verre / 20 min", "pause": "continu",
+         "saisi_par": "a@elem.global"},
         {"date": "2026-07-13 13:45", "lieu": "Toiture", "temp": 31.5,
-         "hum": 60, "tac": 34.1, "zone": "Rouge", "saisi_par": "b@elem.global"},
+         "hum": 60, "tac": 34.1, "zone": "Rouge",
+         "hydratation": "1 verre / 10 min", "pause": "ARRÊT",
+         "saisi_par": "b@elem.global"},
     ]
 
 

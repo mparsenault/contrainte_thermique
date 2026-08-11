@@ -11,7 +11,7 @@ import unicodedata
 import xml.sax.saxutils as _sax
 
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import letter
+from reportlab.lib.pagesizes import landscape, letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
@@ -250,16 +250,17 @@ _COULEUR_ZONE_LIBELLE = {
 
 
 def construire_pdf_rapport(entete: dict, lignes: list, logo=None) -> bytes:
-    """Rapport sommaire des relevés d'un chantier : en-tête d'identité, décompte
-    par zone, puis tableau chronologique (une ligne par relevé).
+    """Rapport sommaire des relevés d'un chantier (paysage) : en-tête d'identité,
+    décompte par zone, puis tableau chronologique (une ligne par relevé).
 
     entete : entrepreneur, chantier, responsable, periode, genere_par, genere_le.
-    lignes : dicts {date, lieu, temp, hum, tac, zone, saisi_par} — date déjà
-             formatée ; temp/hum/tac numériques ou None (affichés « – »).
+    lignes : dicts {date, lieu, temp, hum, tac, zone, hydratation, pause,
+             saisi_par} — date/hydratation/pause déjà formatées ; temp/hum/tac
+             numériques ou None (affichés « – »).
     logo   : chemin PNG/JPG ou octets d'image (même convention que construire_pdf).
     """
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=letter,
+    doc = SimpleDocTemplate(buf, pagesize=landscape(letter),
                             leftMargin=18 * mm, rightMargin=18 * mm,
                             topMargin=16 * mm, bottomMargin=16 * mm,
                             title="Rapport sommaire — contrainte thermique")
@@ -342,7 +343,8 @@ def construire_pdf_rapport(entete: dict, lignes: list, logo=None) -> bytes:
 
     # Tableau des relevés.
     story.append(Paragraph("RELEVÉS", label))
-    tete = ["Date / Heure", "Lieu", "T° ombre", "Hum.", "TAC", "Zone", "Saisi par"]
+    tete = ["Date / Heure", "Lieu", "T° ombre", "Hum.", "TAC", "Zone",
+            "Hydratation", "Pause", "Saisi par"]
     donnees = [[Paragraph(_echapper(t), cellule_tete) for t in tete]]
     for l in lignes:
         donnees.append([
@@ -352,11 +354,13 @@ def construire_pdf_rapport(entete: dict, lignes: list, logo=None) -> bytes:
             Paragraph(_echapper(f"{l.get('hum')} %" if l.get("hum") not in (None, "") else "–"), cellule),
             Paragraph(_echapper(f"{_fmt_temp(l.get('tac'))} °C"), cellule),
             Paragraph(_echapper(l.get("zone", "")), cellule),
+            Paragraph(_echapper(l.get("hydratation") or "–"), cellule),
+            Paragraph(_echapper(l.get("pause") or "–"), cellule),
             Paragraph(_echapper(l.get("saisi_par", "")), cellule),
         ])
     t = Table(donnees, repeatRows=1,
               colWidths=[doc.width * w for w in
-                         (0.16, 0.20, 0.09, 0.08, 0.09, 0.12, 0.26)])
+                         (0.13, 0.18, 0.07, 0.06, 0.07, 0.09, 0.13, 0.11, 0.16)])
     style = [
         ("BACKGROUND", (0, 0), (-1, 0), _FONCE),
         ("LINEBELOW", (0, 0), (-1, -1), 0.5, _LIGNE),
