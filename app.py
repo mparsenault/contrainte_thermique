@@ -415,7 +415,7 @@ with c_compte:
         st.write(f"Connecté : **{st.user.name}**")
         st.button("Se déconnecter", on_click=st.logout)
 st.caption("Calcul de la TAC en direct · saisie envoyée dans SharePoint pour génération du PDF officiel.")
-onglet_saisie, onglet_releves = st.tabs(["Nouveau relevé", "Mes relevés"])
+onglet_saisie, onglet_releves = st.tabs(["Nouveau relevé", "Les relevés"])
 
 with onglet_saisie:
     # Sélection du chantier — pleine largeur, au-dessus de la grille (favoris compris),
@@ -532,7 +532,7 @@ with onglet_saisie:
                                genere_par=st.user.email)
             lire_liste.clear()
             st.success("Relevé enregistré et PDF officiel généré. "
-                       "Retrouvez-le dans « Mes relevés ».")
+                       "Retrouvez-le dans « Les relevés ».")
         except Exception as e:
             lire_liste.clear()
             st.warning("Relevé enregistré, mais le PDF n'a pas pu être généré/déposé "
@@ -542,11 +542,9 @@ with onglet_releves:
     f_chantier = st.selectbox("Filtrer par chantier", ["(tous)"] + projets,
                               format_func=lambda n: "(tous)" if n == "(tous)"
                               else libelle_chantier(n))
-    # « Mes relevés » : uniquement ceux saisis par l'utilisateur connecté.
-    moi = (st.user.email or "").strip().lower()
+    # « Les relevés » : tous les relevés, peu importe qui les a saisis.
     releves = [r for r in lire_liste(LISTE_RELEVES)
-               if (r.get("SaisiPar") or "").strip().lower() == moi]
-    releves = [r for r in releves if f_chantier == "(tous)" or r.get("Chantier") == f_chantier]
+               if f_chantier == "(tous)" or r.get("Chantier") == f_chantier]
     releves.sort(key=lambda r: r.get("DateHeure", ""), reverse=True)
 
     if not releves:
@@ -557,7 +555,9 @@ with onglet_releves:
         with st.container(border=True):
             a, b = st.columns([3, 1])
             a.write(f"{c} **{r.get('Chantier','')}** — {r.get('Lieu','')}")
-            a.caption(f"{_fmt_dt(r.get('DateHeure',''))} · {r.get('Zone','')}")
+            saisi_par = (r.get("SaisiPar") or "").strip()
+            a.caption(f"{_fmt_dt(r.get('DateHeure',''))} · {r.get('Zone','')}"
+                      + (f" · {saisi_par}" if saisi_par else ""))
             reco = _reco_courte(r)
             if reco:
                 a.caption(reco)
